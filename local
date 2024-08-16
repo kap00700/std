@@ -1,0 +1,61 @@
+import os
+import csv
+
+# Local paths
+input_csv_1 = 'C:/Users/HP/Desktop/Email/csv1.csv'
+input_csv_2 = 'C:/Users/HP/Desktop/Email/csv2.csv'
+output_html_path = 'output/folder/filtered_dag.html'
+output_txt_path = 'output/folder/owner_subject.txt'
+
+# Specify the owner to filter by
+owner_filter = 'x'
+
+# Function to read and filter a CSV file by owner
+def read_csv(file_path, expected_columns):
+    filtered_rows = []
+    with open(file_path, mode='r') as file:
+        reader = csv.reader(file)
+        header = next(reader)
+        for row in reader:
+            if len(row) >= expected_columns and row[0].strip().lower() == owner_filter.lower():
+                filtered_rows.append(row)
+    return filtered_rows
+
+# Read and filter the first CSV file (expecting 3 columns)
+filtered_rows_1 = read_csv(input_csv_1, 3)
+
+# Generate HTML content
+html_content = f"""
+<html>
+<head><title>DAGs Status</title></head>
+<body>
+<h2>DAGs Status for Owner: {owner_filter}</h2>
+<p>Additional information can be added here.</p>
+<table border="1">
+<tr><th>Dag_name</th><th>State</th></tr>
+"""
+for row in filtered_rows_1:
+    html_content += f"<tr><td>{row[1]}</td><td>{row[2]}</td></tr>"
+
+html_content += """
+</table>
+<p>Additional information can be added here.</p>
+</body>
+</html>
+"""
+
+# Write the HTML file
+os.makedirs(os.path.dirname(output_html_path), exist_ok=True)
+with open(output_html_path, 'w') as f:
+    f.write(html_content)
+
+# Read and filter the second CSV file (expecting 2 columns)
+filtered_rows_2 = read_csv(input_csv_2, 2)
+
+# Generate text content
+txt_content = "\n".join([row[1] for row in filtered_rows_2])
+
+# Write the text file
+os.makedirs(os.path.dirname(output_txt_path), exist_ok=True)
+with open(output_txt_path, 'w') as f:
+    f.write(txt_content)
