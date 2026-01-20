@@ -1,61 +1,73 @@
-import os
-import csv
+from google.cloud import aiplatform
+import google.auth
+from google.auth import impersonated_credentials
 
-# Local paths
-input_csv_1 = 'C:/Users/HP/Desktop/Email/csv1.csv'
-input_csv_2 = 'C:/Users/HP/Desktop/Email/csv2.csv'
-output_html_path = 'output/folder/filtered_dag.html'
-output_txt_path = 'output/folder/owner_subject.txt'
+PROJECT_ID = "your-gcp-project"
+LOCATION = "us-central1"
 
-# Specify the owner to filter by
-owner_filter = 'rdw'
+# --------------------------------------------------
+# 1) Get default credentials from Composer / GCP
+# --------------------------------------------------
+base_creds, project = google.auth.default()
 
-# Function to read and filter a CSV file by owner
-def read_csv(file_path, expected_columns):
-    filtered_rows = []
-    with open(file_path, mode='r') as file:
-        reader = csv.reader(file)
-        header = next(reader)
-        for row in reader:
-            if len(row) >= expected_columns and row[0].strip().lower() == owner_filter.lower():
-                filtered_rows.append(row)
-    return filtered_rows
+# --------------------------------------------------
+# 2) Impersonate another service account (optional)
+# --------------------------------------------------
+TARGET_SA = "your-target-sa@your-gcp-project.iam.gserviceaccount.com"
 
-# Read and filter the first CSV file (expecting 3 columns)
-filtered_rows_1 = read_csv(input_csv_1, 3)
+creds = impersonated_credentials.Credentials(
+    source_credentials=base_creds,
+    target_principal=TARGET_SA,
+    target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    lifetime=3600
+)
 
-# Generate HTML content
-html_content = f"""
-<html>
-<head><title>DAGs Status</title></head>
-<body>
-<h2>DAGs Status for Owner: {owner_filter}</h2>
-<p>Additional information can be added here.</p>
-<table border="1">
-<tr><th>Dag_name</th><th>State</th></tr>
-"""
-for row in filtered_rows_1:
-    html_content += f"<tr><td>{row[1]}</td><td>{row[2]}</td></tr>"
+# --------------------------------------------------
+# 3) Initialize Vertex AI with these credentials
+# --------------------------------------------------
+aiplatform.init(
+    project=PROJECT_ID,
+    location=LOCATION,
+    credentials=creds
+)
 
-html_content += """
-</table>
-<p>Additional information can be added here.</p>
-</body>
-</html>
-"""
+# Load model
+model = aiplatform.GenerativeModel("gemini-1.5-pro")
 
-# Write the HTML file
-os.makedirs(os.path.dirname(output_html_path), exist_ok=True)
-with open(output_html_path, 'w') as f:
-    f.write(html_content)
+def instruction_to_sql(user_instruction: str, table_schema: str) -> str:
+    prompt = f"""
+    You are a BigQuery SQL expert.
 
-# Read and filter the second CSV file (expecting 2 columns)
-filtered_rows_2 = read_csv(input_csv_2, 2)
+    Table schema:
+    {table_schema}
 
-# Generate text content
-txt_content = "\n".join([row[1] for row in filtered_rows_2])
+    User instruction:
+    {user_instruction}
 
-# Write the text file
-os.makedirs(os.path.dirname(output_txt_path), exist_ok=True)
-with open(output_txt_path, 'w') as f:
-    f.write(txt_content)
+    Convert the above instruction into valid BigQuery SQL.
+    Return ONLY the SQL.
+    """
+
+    response = model.generate_content(prompt)
+    return response.text
+
+
+# ------------- Example Run ----------------
+if __name__ == "__main__":
+
+    bq_schema = """
+    Table: airflow_dag_runs
+    Columns:
+      - dag_id STRING
+      - state STRING
+      - start_date TIMESTAMP
+      - end_date TIMESTAMP
+      - duration_seconds FLOAT
+    """
+
+    instruction = "Get latest status of dag sales_pipeline"
+
+    sql = instruction_to_sql(instruction, bq_schema)
+
+    print("\nGenerated SQL:\n")
+    print(sql)
