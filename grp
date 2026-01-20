@@ -1,40 +1,30 @@
-from google.cloud import aiplatform
 import google.auth
-from google.auth import impersonated_credentials
+import requests
+import json
 
 PROJECT_ID = "your-gcp-project"
 LOCATION = "us-central1"
+MODEL = "gemini-1.5-pro"
 
 # --------------------------------------------------
-# 1) Get default credentials from Composer / GCP
+# Get default credentials from Composer / GCP
 # --------------------------------------------------
-base_creds, project = google.auth.default()
+credentials, _ = google.auth.default(scopes=[
+    "https://www.googleapis.com/auth/cloud-platform"
+])
+
+# Get access token automatically
+auth_req = google.auth.transport.requests.Request()
+credentials.refresh(auth_req)
+access_token = credentials.token
 
 # --------------------------------------------------
-# 2) Impersonate another service account (optional)
+# Vertex AI REST endpoint
 # --------------------------------------------------
-TARGET_SA = "your-target-sa@your-gcp-project.iam.gserviceaccount.com"
+url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/publishers/google/models/{MODEL}:generateContent"
 
-creds = impersonated_credentials.Credentials(
-    source_credentials=base_creds,
-    target_principal=TARGET_SA,
-    target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
-    lifetime=3600
-)
+def instruction_to_sql(user_instruction: str, table_schema: str):
 
-# --------------------------------------------------
-# 3) Initialize Vertex AI with these credentials
-# --------------------------------------------------
-aiplatform.init(
-    project=PROJECT_ID,
-    location=LOCATION,
-    credentials=creds
-)
-
-# Load model
-model = aiplatform.GenerativeModel("gemini-1.5-pro")
-
-def instruction_to_sql(user_instruction: str, table_schema: str) -> str:
     prompt = f"""
     You are a BigQuery SQL expert.
 
@@ -48,11 +38,28 @@ def instruction_to_sql(user_instruction: str, table_schema: str) -> str:
     Return ONLY the SQL.
     """
 
-    response = model.generate_content(prompt)
-    return response.text
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}]
+            }
+        ]
+    }
 
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
 
-# ------------- Example Run ----------------
+    response = requests.post(url, headers=headers, json=payload)
+    response_json = response.json()
+
+    # Extract text from response
+    sql_output = response_json["candidates"][0]["content"]["parts"][0]["text"]
+    return sql_output
+
+# ---------------- Example ----------------
 if __name__ == "__main__":
 
     bq_schema = """
